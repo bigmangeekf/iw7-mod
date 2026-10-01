@@ -89,7 +89,7 @@ namespace gsc
 			{
 				get_unknown_function_error(thread_name);
 				console::error("script link error\n%s\n", unknown_function_error.data());
-			game::Com_Error(game::ERR_SCRIPT_DROP, "script link error\n%s", unknown_function_error.data());
+				game::Com_Error(game::ERR_SCRIPT_DROP, "script link error\n%s", unknown_function_error.data());
 			}
 			return res;
 		}
