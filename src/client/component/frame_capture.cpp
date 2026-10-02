@@ -4,7 +4,7 @@
 #include "console/console.hpp"
 #include "command.hpp"
 #include "directx.hpp"
-#include "scheduler.hpp"
+#include "frame_capture.hpp"
 #include <utils/io.hpp>
 #include <d3d11.h>
 #include <wrl/client.h>
@@ -15,20 +15,17 @@ namespace frame_capture
     {
         using Microsoft::WRL::ComPtr;
         std::atomic<bool> pending{false};
+        std::mutex request_mutex;
+        std::string requested_name;
 
-        void capture(const std::string& name)
+        void capture(IDXGISwapChain* swap_chain, const std::string& name)
         {
             struct reset { ~reset() { pending = false; } } guard;
             try
             {
                 if (!dx::device || !dx::deviceContext) throw std::runtime_error("D3D11 device unavailable");
-                ComPtr<ID3D11RenderTargetView> view;
-                dx::deviceContext->OMGetRenderTargets(1, &view, nullptr);
-                if (!view) throw std::runtime_error("no bound render target");
-                ComPtr<ID3D11Resource> resource;
-                view->GetResource(&resource);
                 ComPtr<ID3D11Texture2D> source;
-                if (FAILED(resource.As(&source))) throw std::runtime_error("render target is not a texture");
+                if (!swap_chain || FAILED(swap_chain->GetBuffer(0, IID_PPV_ARGS(&source)))) throw std::runtime_error("swap chain back buffer unavailable");
                 D3D11_TEXTURE2D_DESC desc{};
                 source->GetDesc(&desc);
                 const bool rgba = desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM || desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
@@ -94,6 +91,17 @@ namespace frame_capture
         }
     }
 
+    // Called under the existing render mutex immediately before Present.
+    void on_present(IDXGISwapChain* swap_chain)
+    {
+        std::string name;
+        {
+            std::lock_guard lock(request_mutex);
+            name.swap(requested_name);
+        }
+        if (!name.empty()) capture(swap_chain, name);
+    }
+
     class component final : public component_interface
     {
     public:
@@ -109,7 +117,8 @@ namespace frame_capture
                     return;
                 }
                 if (pending.exchange(true)) { console::error("[capture_frame] Capture already pending.\n"); return; }
-                scheduler::once([name] { capture(name); }, scheduler::renderer);
+                std::lock_guard lock(request_mutex);
+                requested_name = name;
             });
         }
     };

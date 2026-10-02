@@ -1,4 +1,5 @@
 #include <std_include.hpp>
+#include "../frame_capture.hpp"
 
 #include "loader/component_loader.hpp"
 
@@ -433,6 +434,7 @@ namespace gui
 				const auto mutex = *reinterpret_cast<HANDLE*>(0x148B1BC98);
 				WaitForSingleObject(mutex, INFINITE);
 				draw_gui(swap_chain);
+				frame_capture::on_present(swap_chain);
 				ReleaseMutex(mutex);
 			}
 
