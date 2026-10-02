@@ -12,6 +12,7 @@
 #include "filesystem.hpp"
 #include "dvars.hpp"
 
+#include <cstring>
 #include <utils/hook.hpp>
 #include <utils/string.hpp>
 #include <utils/info_string.hpp>
@@ -749,9 +750,20 @@ namespace patches
 			// Patch crash caused by the server trying to kick players for 'invalid password'
 			if (game::environment::is_dedi())
 			{
-				console::info("[Paris safety] Dedicated last-seen null guard active.\n");
-				utils::hook::nop(0x140B2215B, 18);
-				utils::hook::jump(0x140B2215B, update_last_seen_players_stub(), true);
+				static constexpr unsigned char expected[] = {
+					0x48, 0x8B, 0x06, 0xC7, 0x80, 0x10, 0x4D, 0x00, 0x00,
+					0x00, 0x00, 0x00, 0x00, 0xE9, 0x1A, 0x01, 0x00, 0x00
+				};
+				if (std::memcmp(reinterpret_cast<const void*>(0x140B2215B), expected, sizeof(expected)) == 0)
+				{
+					console::info("[Paris safety] Dedicated last-seen null guard active.\n");
+					utils::hook::nop(0x140B2215B, sizeof(expected));
+					utils::hook::jump(0x140B2215B, update_last_seen_players_stub(), true);
+				}
+				else
+				{
+					console::error("[Paris safety] Last-seen null guard skipped; engine code signature mismatch.\n");
+				}
 			}
 
 			// Start match without the timer
