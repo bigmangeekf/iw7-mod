@@ -12,6 +12,7 @@
 #include "filesystem.hpp"
 #include "dvars.hpp"
 
+#include <cstring>
 #include <utils/hook.hpp>
 #include <utils/string.hpp>
 #include <utils/info_string.hpp>
@@ -229,17 +230,17 @@ namespace patches
 				const auto safe_continue = a.newLabel();
 
 				// (game's code)
+				a.pushfq();
 				a.mov(rax, ptr(rsi)); // g_entities pointer
-
-				// Avoid crash if pointer is nullptr
 				a.test(rax, rax);
 				a.jz(safe_continue);
 
-				// Jump back in (game's code)
+				// Preserve the flags produced by the original loop condition.
 				a.mov(dword_ptr(rax, 0x4D10), 0);
 
-				// Continue to next iter in this loop
 				a.bind(safe_continue);
+				a.popfq();
+
 				a.jmp(0x140B22287);
 			});
 		}
@@ -747,8 +748,23 @@ namespace patches
 			utils::hook::nop(0x140E6A30C, 2); // ^
 
 			// Patch crash caused by the server trying to kick players for 'invalid password'
-			//utils::hook::nop(0x140B2215B, 18);
-			//utils::hook::jump(0x140B2215B, update_last_seen_players_stub(), true);
+			if (game::environment::is_dedi())
+			{
+				static constexpr unsigned char expected[] = {
+					0x48, 0x8B, 0x06, 0xC7, 0x80, 0x10, 0x4D, 0x00, 0x00,
+					0x00, 0x00, 0x00, 0x00, 0xE9, 0x1A, 0x01, 0x00, 0x00
+				};
+				if (std::memcmp(reinterpret_cast<const void*>(0x140B2215B), expected, sizeof(expected)) == 0)
+				{
+					console::info("[Paris safety] Dedicated last-seen null guard active.\n");
+					utils::hook::nop(0x140B2215B, sizeof(expected));
+					utils::hook::jump(0x140B2215B, update_last_seen_players_stub(), true);
+				}
+				else
+				{
+					console::error("[Paris safety] Last-seen null guard skipped; engine code signature mismatch.\n");
+				}
+			}
 
 			// Start match without the timer
 			party_skip_countdown = game::Dvar_RegisterBool("party_skipCountdown", false, game::DVAR_FLAG_SAVED, "Start private matches without the countdown");
